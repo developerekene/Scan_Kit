@@ -1,0 +1,24 @@
+<resources>
+    <string name="app_name">ScanKit</string>
+    <string name="nav_scan">Scan</string>
+    <string name="nav_create">Create</string>
+    <string name="nav_history">History</string>
+    <string name="scan_title">Scanner</string>
+    <string name="scan_hint">Align a QR code within the frame</string>
+    <string name="scan_gallery">Gallery</string>
+    <string name="scan_flashlight">Flashlight</string>
+    <string name="scan_camera_permission_title">Camera Access Needed</string>
+    <string name="scan_camera_permission_body">Grant camera permission to scan QR codes live, or pick an image directly from your gallery offline.</string>
+    <string name="scan_enable_camera">Enable Camera</string>
+    <string name="scan_open_settings">App Settings</string>
+    <string name="scan_from_gallery_cta">Scan Image from Gallery</string>
+    <string name="scan_no_qr_found">No QR code found in the selected image.</string>
+    <string name="create_title">Create QR</string>
+    <string name="history_title">History</string>
+    <string name="action_copy">Copy</string>
+    <string name="action_share">Share</string>
+    <string name="action_save_image">Save PNG</string>
+    <string name="copied_to_clipboard">Copied to clipboard</string>
+    <string name="saved_to_gallery">Saved QR code image to Pictures/ScanKit</string>
+    <string name="saved_to_history">Saved to History</string>
+</resources>
