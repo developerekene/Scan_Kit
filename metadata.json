@@ -1,6 +1,6 @@
 {
   "name": "ScanKit",
-  "description": "Fast offline QR code scanner, generator, and history companion.",
+  "description": "Fast QR code scanner, generator, and history companion.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

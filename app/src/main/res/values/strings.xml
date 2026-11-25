@@ -8,7 +8,7 @@
     <string name="scan_gallery">Gallery</string>
     <string name="scan_flashlight">Flashlight</string>
     <string name="scan_camera_permission_title">Camera Access Needed</string>
-    <string name="scan_camera_permission_body">Grant camera permission to scan QR codes live, or pick an image directly from your gallery offline.</string>
+    <string name="scan_camera_permission_body">Grant camera permission to scan QR codes live, or pick an image directly from your gallery.</string>
     <string name="scan_enable_camera">Enable Camera</string>
     <string name="scan_open_settings">App Settings</string>
     <string name="scan_from_gallery_cta">Scan Image from Gallery</string>
