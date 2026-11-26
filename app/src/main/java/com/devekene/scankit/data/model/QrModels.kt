@@ -1,5 +1,18 @@
 package com.devekene.scankit.data.model
 
+import com.google.mlkit.vision.barcode.common.Barcode
+import com.google.zxing.BarcodeFormat
+
+enum class ScanMode {
+    QR,
+    BARCODE
+}
+
+enum class CreateKind(val label: String) {
+    QR_CODE("QR Code"),
+    BARCODE("Barcode")
+}
+
 enum class QrSource {
     SCANNED,
     CREATED
@@ -12,7 +25,96 @@ enum class QrContentType(val label: String) {
     EMAIL("Email"),
     PHONE("Phone"),
     SOCIAL("Social"),
-    TEXT("Text")
+    TEXT("Text"),
+    BARCODE("Barcode")
+}
+
+enum class BarcodeFormatType(
+    val label: String,
+    val zxingFormat: BarcodeFormat,
+    val mlKitFormat: Int,
+    val hint: String,
+    val placeholder: String
+) {
+    CODE_128(
+        label = "Code 128",
+        zxingFormat = BarcodeFormat.CODE_128,
+        mlKitFormat = Barcode.FORMAT_CODE_128,
+        hint = "Any ASCII text or digits (e.g. SKU-2026-A)",
+        placeholder = "SKU-2026-001"
+    ),
+    EAN_13(
+        label = "EAN-13",
+        zxingFormat = BarcodeFormat.EAN_13,
+        mlKitFormat = Barcode.FORMAT_EAN_13,
+        hint = "12 or 13 digits (13th check digit auto-validated)",
+        placeholder = "5901234123457"
+    ),
+    UPC_A(
+        label = "UPC-A",
+        zxingFormat = BarcodeFormat.UPC_A,
+        mlKitFormat = Barcode.FORMAT_UPC_A,
+        hint = "11 or 12 digits (retail product code)",
+        placeholder = "036000291452"
+    ),
+    EAN_8(
+        label = "EAN-8",
+        zxingFormat = BarcodeFormat.EAN_8,
+        mlKitFormat = Barcode.FORMAT_EAN_8,
+        hint = "7 or 8 digits (compact retail barcode)",
+        placeholder = "96385074"
+    ),
+    CODE_39(
+        label = "Code 39",
+        zxingFormat = BarcodeFormat.CODE_39,
+        mlKitFormat = Barcode.FORMAT_CODE_39,
+        hint = "Uppercase A-Z, 0-9, and - . $ / + % space",
+        placeholder = "ITEM-409"
+    ),
+    ITF(
+        label = "ITF-14",
+        zxingFormat = BarcodeFormat.ITF,
+        mlKitFormat = Barcode.FORMAT_ITF,
+        hint = "Even number of digits (e.g. 10 to 14 digits)",
+        placeholder = "10012345678902"
+    ),
+    CODABAR(
+        label = "Codabar",
+        zxingFormat = BarcodeFormat.CODABAR,
+        mlKitFormat = Barcode.FORMAT_CODABAR,
+        hint = "Digits 0-9 and - $ : / . +",
+        placeholder = "A123456B"
+    );
+
+    companion object {
+        fun fromMlKitFormat(format: Int?): BarcodeFormatType? {
+            return entries.firstOrNull { it.mlKitFormat == format }
+        }
+
+        fun fromZxingFormat(format: BarcodeFormat?): BarcodeFormatType? {
+            return entries.firstOrNull { it.zxingFormat == format }
+        }
+
+        fun fromStorageName(name: String?): BarcodeFormatType? {
+            if (name.isNullOrBlank() || name == "QR_CODE") return null
+            return entries.firstOrNull { it.name == name }
+        }
+
+        fun formatLabelFromMlKit(format: Int?): String {
+            return when (format) {
+                Barcode.FORMAT_EAN_13 -> "EAN-13"
+                Barcode.FORMAT_EAN_8 -> "EAN-8"
+                Barcode.FORMAT_UPC_A -> "UPC-A"
+                Barcode.FORMAT_UPC_E -> "UPC-E"
+                Barcode.FORMAT_CODE_128 -> "Code 128"
+                Barcode.FORMAT_CODE_39 -> "Code 39"
+                Barcode.FORMAT_CODE_93 -> "Code 93"
+                Barcode.FORMAT_CODABAR -> "Codabar"
+                Barcode.FORMAT_ITF -> "ITF"
+                else -> "Barcode"
+            }
+        }
+    }
 }
 
 enum class WifiSecurity(val code: String, val label: String) {
@@ -111,6 +213,16 @@ sealed class ParsedQrPayload {
         override val type: QrContentType = QrContentType.PHONE
         override val title: String = phoneNumber
         override val subtitle: String = "Phone Number"
+    }
+
+    data class BarcodeItem(
+        override val rawValue: String,
+        val formatLabel: String,
+        val barcodeFormat: BarcodeFormatType? = null
+    ) : ParsedQrPayload() {
+        override val type: QrContentType = QrContentType.BARCODE
+        override val title: String = rawValue
+        override val subtitle: String = "$formatLabel Barcode"
     }
 
     data class Text(

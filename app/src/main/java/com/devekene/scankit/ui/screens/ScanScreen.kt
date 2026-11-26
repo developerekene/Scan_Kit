@@ -24,7 +24,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,15 +39,13 @@ import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CameraAlt
 import androidx.compose.material.icons.rounded.FlashlightOff
 import androidx.compose.material.icons.rounded.FlashlightOn
+import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material.icons.rounded.PhotoLibrary
-import androidx.compose.material.icons.rounded.QrCodeScanner
 import androidx.compose.material.icons.rounded.ZoomIn
 import androidx.compose.material.icons.rounded.ZoomOut
 import androidx.compose.material3.Button
@@ -68,14 +65,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -87,10 +87,11 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.devekene.scankit.R
+import com.devekene.scankit.data.model.BarcodeFormatType
+import com.devekene.scankit.data.model.ScanMode
 import com.devekene.scankit.ui.components.QrResultBottomSheet
 import com.devekene.scankit.ui.components.ScannerViewfinderOverlay
 import com.devekene.scankit.ui.theme.ScannerBeamCyan
-import com.devekene.scankit.ui.theme.ScannerSuccessEmerald
 import com.devekene.scankit.ui.viewmodel.ScanViewModel
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -101,7 +102,9 @@ import java.util.concurrent.Executors
 @Composable
 fun ScanScreen(
     viewModel: ScanViewModel,
-    onEditInGenerator: (String) -> Unit,
+    scanMode: ScanMode = ScanMode.QR,
+    onOpenDrawer: () -> Unit,
+    onEditInGenerator: (String, BarcodeFormatType?) -> Unit,
     onShowMessage: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -144,7 +147,7 @@ fun ScanScreen(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            viewModel.decodeGalleryImage(context, uri)
+            viewModel.decodeGalleryImage(context, uri, scanMode)
         }
     }
 
@@ -155,7 +158,7 @@ fun ScanScreen(
         }
     }
 
-    // Trigger subtle haptic pulse when a new QR is captured
+    // Trigger subtle haptic pulse when a new code is captured
     LaunchedEffect(uiState.activeResult) {
         if (uiState.activeResult != null) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -169,21 +172,26 @@ fun ScanScreen(
     ) {
         if (hasCameraPermission && cameraError == null) {
             CameraScannerPreview(
+                scanMode = scanMode,
                 isTorchOn = uiState.isTorchOn,
                 isZoomed = uiState.isZoomed,
                 isScanningPaused = uiState.isScanningPaused,
                 onCameraInfoReady = { hasFlash -> viewModel.onCameraInfoUpdated(hasFlash) },
-                onBarcodeDetected = { raw -> viewModel.onBarcodeDetected(raw) },
+                onBarcodeDetected = { raw, format ->
+                    viewModel.onBarcodeDetected(rawValue = raw, mlKitFormat = format, scanMode = scanMode)
+                },
                 onCameraUnavailable = { reason -> cameraError = reason },
                 modifier = Modifier.fillMaxSize()
             )
 
             ScannerViewfinderOverlay(
                 isActiveScanning = !uiState.isScanningPaused,
+                scanMode = scanMode,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
             CameraPermissionOrUnavailableCard(
+                scanMode = scanMode,
                 isCameraUnavailable = cameraError != null,
                 permissionRequestedOnce = permissionRequestedOnce,
                 onRequestCamera = {
@@ -222,7 +230,7 @@ fun ScanScreen(
                 tonalElevation = 4.dp
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                    modifier = Modifier.padding(start = 12.dp, end = 14.dp, top = 8.dp, bottom = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -239,11 +247,26 @@ fun ScanScreen(
                         color = Color.White,
                         fontWeight = FontWeight.Bold
                     )
+                    Surface(
+                        color = ScannerBeamCyan.copy(alpha = 0.22f),
+                        shape = RoundedCornerShape(50)
+                    ) {
+                        Text(
+                            text = if (scanMode == ScanMode.BARCODE) "Barcode" else "QR",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = ScannerBeamCyan,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             }
 
-            if (hasCameraPermission && cameraError == null) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (hasCameraPermission && cameraError == null) {
                     IconButton(
                         onClick = { viewModel.toggleZoom() },
                         colors = IconButtonDefaults.iconButtonColors(
@@ -278,6 +301,23 @@ fun ScanScreen(
                         }
                     }
                 }
+
+                // Top-right Hamburger Menu button (opens History drawer from the left)
+                IconButton(
+                    onClick = onOpenDrawer,
+                    colors = IconButtonDefaults.iconButtonColors(
+                        containerColor = Color(0xAA0F172A),
+                        contentColor = Color.White
+                    ),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("scanner_menu_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Menu,
+                        contentDescription = stringResource(R.string.scan_menu)
+                    )
+                }
             }
         }
 
@@ -295,7 +335,11 @@ fun ScanScreen(
                     shape = RoundedCornerShape(50)
                 ) {
                     Text(
-                        text = stringResource(R.string.scan_hint),
+                        text = if (scanMode == ScanMode.BARCODE) {
+                            stringResource(R.string.scan_barcode_hint)
+                        } else {
+                            stringResource(R.string.scan_hint)
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = Color.White.copy(alpha = 0.9f),
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
@@ -325,7 +369,11 @@ fun ScanScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = stringResource(R.string.scan_from_gallery_cta),
+                        text = if (scanMode == ScanMode.BARCODE) {
+                            stringResource(R.string.scan_barcode_from_gallery_cta)
+                        } else {
+                            stringResource(R.string.scan_from_gallery_cta)
+                        },
                         style = MaterialTheme.typography.labelLarge
                     )
                 }
@@ -373,11 +421,12 @@ fun ScanScreen(
 @OptIn(ExperimentalGetImage::class)
 @Composable
 private fun CameraScannerPreview(
+    scanMode: ScanMode,
     isTorchOn: Boolean,
     isZoomed: Boolean,
     isScanningPaused: Boolean,
     onCameraInfoReady: (Boolean) -> Unit,
-    onBarcodeDetected: (String) -> Unit,
+    onBarcodeDetected: (String, Int) -> Unit,
     onCameraUnavailable: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -393,6 +442,7 @@ private fun CameraScannerPreview(
     // Keep latest callbacks accessible without rebinding camera
     val pausedState = remember { mutableStateOf(isScanningPaused) }
     pausedState.value = isScanningPaused
+    val latestOnBarcodeDetected by rememberUpdatedState(onBarcodeDetected)
 
     LaunchedEffect(boundCamera, isTorchOn) {
         runCatching {
@@ -406,20 +456,32 @@ private fun CameraScannerPreview(
         }
     }
 
-    DisposableEffect(lifecycleOwner) {
+    DisposableEffect(lifecycleOwner, scanMode) {
         val executor = Executors.newSingleThreadExecutor()
-        val scannerOptions = BarcodeScannerOptions.Builder()
-            .setBarcodeFormats(
-                Barcode.FORMAT_QR_CODE,
-                Barcode.FORMAT_AZTEC,
-                Barcode.FORMAT_DATA_MATRIX,
-                Barcode.FORMAT_PDF417,
-                Barcode.FORMAT_EAN_13,
-                Barcode.FORMAT_EAN_8,
-                Barcode.FORMAT_UPC_A,
-                Barcode.FORMAT_CODE_128
-            )
-            .build()
+        val scannerOptions = if (scanMode == ScanMode.BARCODE) {
+            BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(
+                    Barcode.FORMAT_EAN_13,
+                    Barcode.FORMAT_EAN_8,
+                    Barcode.FORMAT_UPC_A,
+                    Barcode.FORMAT_UPC_E,
+                    Barcode.FORMAT_CODE_128,
+                    Barcode.FORMAT_CODE_39,
+                    Barcode.FORMAT_CODE_93,
+                    Barcode.FORMAT_CODABAR,
+                    Barcode.FORMAT_ITF
+                )
+                .build()
+        } else {
+            BarcodeScannerOptions.Builder()
+                .setBarcodeFormats(
+                    Barcode.FORMAT_QR_CODE,
+                    Barcode.FORMAT_AZTEC,
+                    Barcode.FORMAT_DATA_MATRIX,
+                    Barcode.FORMAT_PDF417
+                )
+                .build()
+        }
         val barcodeScanner = BarcodeScanning.getClient(scannerOptions)
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         var providerRef: ProcessCameraProvider? = null
@@ -465,11 +527,10 @@ private fun CameraScannerPreview(
                         )
                         barcodeScanner.process(inputImage)
                             .addOnSuccessListener { barcodes ->
-                                val raw = barcodes.firstNotNullOfOrNull {
-                                    it.rawValue?.takeIf { v -> v.isNotBlank() }
-                                }
-                                if (raw != null) {
-                                    onBarcodeDetected(raw)
+                                val match = barcodes.firstOrNull { !it.rawValue.isNullOrBlank() }
+                                val raw = match?.rawValue
+                                if (match != null && !raw.isNullOrBlank()) {
+                                    latestOnBarcodeDetected(raw, match.format)
                                 }
                             }
                             .addOnCompleteListener {
@@ -511,6 +572,7 @@ private fun CameraScannerPreview(
 
 @Composable
 private fun CameraPermissionOrUnavailableCard(
+    scanMode: ScanMode,
     isCameraUnavailable: Boolean,
     permissionRequestedOnce: Boolean,
     onRequestCamera: () -> Unit,
@@ -552,7 +614,11 @@ private fun CameraPermissionOrUnavailableCard(
 
             Text(
                 text = if (isCameraUnavailable) {
-                    "You can still scan any QR code from screenshots or saved photos using your gallery."
+                    if (scanMode == ScanMode.BARCODE) {
+                        "You can still scan any barcode from screenshots or saved photos using your gallery."
+                    } else {
+                        "You can still scan any QR code from screenshots or saved photos using your gallery."
+                    }
                 } else {
                     stringResource(R.string.scan_camera_permission_body)
                 },
@@ -607,7 +673,13 @@ private fun CameraPermissionOrUnavailableCard(
                     modifier = Modifier.size(20.dp)
                 )
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(stringResource(R.string.scan_from_gallery_cta))
+                Text(
+                    if (scanMode == ScanMode.BARCODE) {
+                        stringResource(R.string.scan_barcode_from_gallery_cta)
+                    } else {
+                        stringResource(R.string.scan_from_gallery_cta)
+                    }
+                )
             }
         }
     }

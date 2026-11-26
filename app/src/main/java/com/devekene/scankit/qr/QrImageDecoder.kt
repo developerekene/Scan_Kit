@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import com.devekene.scankit.data.model.BarcodeFormatType
+import com.devekene.scankit.data.model.ScanMode
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -19,44 +21,79 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 
+data class DecodedScanResult(
+    val rawValue: String,
+    val mlKitFormat: Int? = null,
+    val barcodeFormat: BarcodeFormatType? = null
+)
+
 object QrImageDecoder {
 
-    private val scannerOptions = BarcodeScannerOptions.Builder()
+    private val qrScannerOptions = BarcodeScannerOptions.Builder()
         .setBarcodeFormats(
             Barcode.FORMAT_QR_CODE,
             Barcode.FORMAT_AZTEC,
             Barcode.FORMAT_DATA_MATRIX,
-            Barcode.FORMAT_PDF417,
-            Barcode.FORMAT_EAN_13,
-            Barcode.FORMAT_EAN_8,
-            Barcode.FORMAT_UPC_A,
-            Barcode.FORMAT_CODE_128
+            Barcode.FORMAT_PDF417
         )
         .build()
 
-    suspend fun decodeFromUri(context: Context, uri: Uri): String? {
-        // 1. Primary offline decoder: ML Kit Barcode Scanning
-        val mlKitResult = decodeWithMlKit(context, uri)
-        if (!mlKitResult.isNullOrBlank()) {
+    private val barcodeScannerOptions = BarcodeScannerOptions.Builder()
+        .setBarcodeFormats(
+            Barcode.FORMAT_EAN_13,
+            Barcode.FORMAT_EAN_8,
+            Barcode.FORMAT_UPC_A,
+            Barcode.FORMAT_UPC_E,
+            Barcode.FORMAT_CODE_128,
+            Barcode.FORMAT_CODE_39,
+            Barcode.FORMAT_CODE_93,
+            Barcode.FORMAT_CODABAR,
+            Barcode.FORMAT_ITF
+        )
+        .build()
+
+    suspend fun decodeFromUri(
+        context: Context,
+        uri: Uri,
+        mode: ScanMode = ScanMode.QR
+    ): DecodedScanResult? {
+        // 1. Primary decoder: ML Kit Barcode Scanning
+        val mlKitResult = decodeWithMlKit(context, uri, mode)
+        if (mlKitResult != null) {
             return mlKitResult
         }
 
-        // 2. Fallback offline decoder: ZXing MultiFormatReader (handles tiny/inverted screenshots)
+        // 2. Fallback decoder: ZXing MultiFormatReader (handles tiny/inverted screenshots)
         return withContext(Dispatchers.Default) {
             decodeWithZxing(context, uri)
         }
     }
 
-    private suspend fun decodeWithMlKit(context: Context, uri: Uri): String? {
+    private suspend fun decodeWithMlKit(
+        context: Context,
+        uri: Uri,
+        mode: ScanMode
+    ): DecodedScanResult? {
         val inputImage = runCatching { InputImage.fromFilePath(context, uri) }.getOrNull()
             ?: return null
 
-        val scanner = BarcodeScanning.getClient(scannerOptions)
+        val options = when (mode) {
+            ScanMode.QR -> qrScannerOptions
+            ScanMode.BARCODE -> barcodeScannerOptions
+        }
+        val scanner = BarcodeScanning.getClient(options)
         return suspendCancellableCoroutine { continuation ->
             scanner.process(inputImage)
                 .addOnSuccessListener { barcodes ->
-                    val raw = barcodes.firstNotNullOfOrNull { it.rawValue?.takeIf { v -> v.isNotBlank() } }
-                    if (continuation.isActive) continuation.resume(raw)
+                    val match = barcodes.firstOrNull { !it.rawValue.isNullOrBlank() }
+                    val result = match?.rawValue?.let { raw ->
+                        DecodedScanResult(
+                            rawValue = raw,
+                            mlKitFormat = match.format,
+                            barcodeFormat = BarcodeFormatType.fromMlKitFormat(match.format)
+                        )
+                    }
+                    if (continuation.isActive) continuation.resume(result)
                 }
                 .addOnFailureListener {
                     if (continuation.isActive) continuation.resume(null)
@@ -67,7 +104,7 @@ object QrImageDecoder {
         }
     }
 
-    private fun decodeWithZxing(context: Context, uri: Uri): String? {
+    private fun decodeWithZxing(context: Context, uri: Uri): DecodedScanResult? {
         val bitmap = decodeSampledBitmap(context, uri, maxDimension = 1600) ?: return null
         return try {
             val width = bitmap.width
@@ -82,11 +119,20 @@ object QrImageDecoder {
             )
             val reader = MultiFormatReader()
 
-            runCatching {
-                reader.decode(BinaryBitmap(HybridBinarizer(source)), hints).text
+            val decoded = runCatching {
+                reader.decode(BinaryBitmap(HybridBinarizer(source)), hints)
             }.getOrNull() ?: runCatching {
-                reader.decode(BinaryBitmap(HybridBinarizer(InvertedLuminanceSource(source))), hints).text
+                reader.decode(BinaryBitmap(HybridBinarizer(InvertedLuminanceSource(source))), hints)
             }.getOrNull()
+
+            decoded?.let { res ->
+                val fmt = BarcodeFormatType.fromZxingFormat(res.barcodeFormat)
+                DecodedScanResult(
+                    rawValue = res.text,
+                    mlKitFormat = fmt?.mlKitFormat,
+                    barcodeFormat = fmt
+                )
+            }
         } finally {
             bitmap.recycle()
         }

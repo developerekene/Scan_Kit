@@ -7,6 +7,7 @@ import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.Notes
 import androidx.compose.material.icons.rounded.Phone
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.ViewWeek
 import androidx.compose.material.icons.rounded.Wifi
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -60,6 +61,12 @@ fun qrTypeBadgeStyle(type: QrContentType): QrTypeBadgeStyle {
             label = "Social",
             containerColor = scheme.secondaryContainer,
             contentColor = scheme.onSecondaryContainer
+        )
+        QrContentType.BARCODE -> QrTypeBadgeStyle(
+            icon = Icons.Rounded.ViewWeek,
+            label = "Barcode",
+            containerColor = scheme.primaryContainer,
+            contentColor = scheme.onPrimaryContainer
         )
         QrContentType.TEXT -> QrTypeBadgeStyle(
             icon = Icons.Rounded.Notes,

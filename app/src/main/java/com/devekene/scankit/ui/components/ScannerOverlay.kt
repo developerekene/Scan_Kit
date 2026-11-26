@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.unit.dp
+import com.devekene.scankit.data.model.ScanMode
 import com.devekene.scankit.ui.theme.ScannerBeamCyan
 import com.devekene.scankit.ui.theme.ScannerScrim
 import com.devekene.scankit.ui.theme.ScannerSuccessEmerald
@@ -31,6 +32,7 @@ import com.devekene.scankit.ui.theme.ScannerSuccessEmerald
 @Composable
 fun ScannerViewfinderOverlay(
     isActiveScanning: Boolean,
+    scanMode: ScanMode = ScanMode.QR,
     modifier: Modifier = Modifier
 ) {
     val transition = rememberInfiniteTransition(label = "scanner_beam")
@@ -54,12 +56,25 @@ fun ScannerViewfinderOverlay(
     )
 
     Canvas(modifier = modifier.fillMaxSize()) {
-        val frameSize = (minOf(size.width, size.height) * 0.66f).coerceIn(200.dp.toPx(), 320.dp.toPx())
-        val left = (size.width - frameSize) / 2f
-        val top = (size.height - frameSize) / 2f - 24.dp.toPx().coerceAtMost(size.height * 0.06f)
-        val right = left + frameSize
-        val bottom = top + frameSize
-        val cornerRadius = 24.dp.toPx()
+        val frameWidth: Float
+        val frameHeight: Float
+        val cornerRadius: Float
+
+        if (scanMode == ScanMode.BARCODE) {
+            frameWidth = (size.width * 0.84f).coerceIn(240.dp.toPx(), 420.dp.toPx())
+            frameHeight = (frameWidth * 0.44f).coerceIn(120.dp.toPx(), 190.dp.toPx())
+            cornerRadius = 18.dp.toPx()
+        } else {
+            val square = (minOf(size.width, size.height) * 0.66f).coerceIn(200.dp.toPx(), 320.dp.toPx())
+            frameWidth = square
+            frameHeight = square
+            cornerRadius = 24.dp.toPx()
+        }
+
+        val left = (size.width - frameWidth) / 2f
+        val top = (size.height - frameHeight) / 2f - 24.dp.toPx().coerceAtMost(size.height * 0.06f)
+        val right = left + frameWidth
+        val bottom = top + frameHeight
 
         val cutoutPath = Path().apply {
             addRoundRect(
@@ -79,20 +94,29 @@ fun ScannerViewfinderOverlay(
         drawRoundRect(
             color = Color.White.copy(alpha = 0.22f),
             topLeft = Offset(left, top),
-            size = Size(frameSize, frameSize),
+            size = Size(frameWidth, frameHeight),
             cornerRadius = CornerRadius(cornerRadius, cornerRadius),
             style = Stroke(width = 1.dp.toPx())
         )
 
-        // Sweeping cyan optical laser beam
+        // Sweeping laser beam (QR sweeps vertically; Barcode pulses across center laser line)
         if (isActiveScanning) {
-            val beamY = top + frameSize * beamProgress
+            val beamY = if (scanMode == ScanMode.BARCODE) {
+                top + frameHeight * (0.44f + 0.12f * beamProgress)
+            } else {
+                top + frameHeight * beamProgress
+            }
+            val beamColor = if (scanMode == ScanMode.BARCODE) {
+                Color(0xFF38BDF8)
+            } else {
+                ScannerBeamCyan
+            }
             val beamBrush = Brush.horizontalGradient(
                 colors = listOf(
                     Color.Transparent,
-                    ScannerBeamCyan.copy(alpha = 0.9f),
+                    beamColor.copy(alpha = 0.92f),
                     Color.White,
-                    ScannerBeamCyan.copy(alpha = 0.9f),
+                    beamColor.copy(alpha = 0.92f),
                     Color.Transparent
                 ),
                 startX = left + 16.dp.toPx(),
@@ -100,26 +124,25 @@ fun ScannerViewfinderOverlay(
             )
             drawLine(
                 brush = beamBrush,
-                start = Offset(left + 18.dp.toPx(), beamY),
-                end = Offset(right - 18.dp.toPx(), beamY),
+                start = Offset(left + 16.dp.toPx(), beamY),
+                end = Offset(right - 16.dp.toPx(), beamY),
                 strokeWidth = 2.5.dp.toPx(),
                 cap = StrokeCap.Round
             )
 
-            // Soft glow halo below/above beam
             val haloHeight = 24.dp.toPx()
             drawRect(
                 brush = Brush.verticalGradient(
                     colors = listOf(
                         Color.Transparent,
-                        ScannerBeamCyan.copy(alpha = 0.18f),
+                        beamColor.copy(alpha = 0.18f),
                         Color.Transparent
                     ),
                     startY = beamY - haloHeight / 2f,
                     endY = beamY + haloHeight / 2f
                 ),
                 topLeft = Offset(left + 16.dp.toPx(), beamY - haloHeight / 2f),
-                size = Size(frameSize - 32.dp.toPx(), haloHeight)
+                size = Size(frameWidth - 32.dp.toPx(), haloHeight)
             )
         }
 
@@ -130,7 +153,7 @@ fun ScannerViewfinderOverlay(
             ScannerSuccessEmerald
         }
         val strokeWidth = 4.dp.toPx()
-        val armLength = 34.dp.toPx()
+        val armLength = if (scanMode == ScanMode.BARCODE) 28.dp.toPx() else 34.dp.toPx()
 
         // Top-left
         drawPath(

@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.devekene.scankit.data.model.ParsedQrPayload
 import com.devekene.scankit.data.model.QrSource
+import com.devekene.scankit.data.model.ScanMode
 import com.devekene.scankit.data.repository.QrHistoryRepository
 import com.devekene.scankit.qr.QrImageDecoder
 import com.devekene.scankit.qr.QrPayloadParser
@@ -52,7 +53,11 @@ class ScanViewModel(
         _uiState.update { it.copy(isZoomed = !it.isZoomed) }
     }
 
-    fun onBarcodeDetected(rawValue: String) {
+    fun onBarcodeDetected(
+        rawValue: String,
+        mlKitFormat: Int? = null,
+        scanMode: ScanMode = ScanMode.QR
+    ) {
         val currentState = _uiState.value
         if (currentState.isScanningPaused || currentState.activeResult != null) return
 
@@ -61,7 +66,12 @@ class ScanViewModel(
 
         lastDetectedValue = rawValue
         lastDetectedAtMs = now
-        val parsed = QrPayloadParser.parse(rawValue)
+
+        val parsed = if (scanMode == ScanMode.BARCODE) {
+            QrPayloadParser.parseWithFormat(rawValue, mlKitFormat)
+        } else {
+            QrPayloadParser.parse(rawValue)
+        }
 
         _uiState.update {
             it.copy(
@@ -71,19 +81,36 @@ class ScanViewModel(
         }
 
         viewModelScope.launch {
-            repository.recordEntry(rawContent = rawValue, source = QrSource.SCANNED)
+            repository.recordEntry(
+                rawContent = rawValue,
+                source = QrSource.SCANNED,
+                mlKitFormat = if (scanMode == ScanMode.BARCODE) mlKitFormat else null
+            )
         }
     }
 
-    fun decodeGalleryImage(context: Context, uri: Uri) {
+    fun decodeGalleryImage(context: Context, uri: Uri, mode: ScanMode = ScanMode.QR) {
         if (_uiState.value.isDecodingGallery) return
         _uiState.update { it.copy(isDecodingGallery = true) }
 
         viewModelScope.launch {
-            val decoded = QrImageDecoder.decodeFromUri(context.applicationContext, uri)
-            if (!decoded.isNullOrBlank()) {
-                val parsed = QrPayloadParser.parse(decoded)
-                repository.recordEntry(rawContent = decoded, source = QrSource.SCANNED)
+            val decoded = QrImageDecoder.decodeFromUri(context.applicationContext, uri, mode)
+            if (decoded != null && decoded.rawValue.isNotBlank()) {
+                val parsed = if (mode == ScanMode.BARCODE || decoded.barcodeFormat != null) {
+                    QrPayloadParser.parseWithFormat(
+                        raw = decoded.rawValue,
+                        mlKitFormat = decoded.mlKitFormat,
+                        barcodeFormatOverride = decoded.barcodeFormat
+                    )
+                } else {
+                    QrPayloadParser.parse(decoded.rawValue)
+                }
+                repository.recordEntry(
+                    rawContent = decoded.rawValue,
+                    source = QrSource.SCANNED,
+                    mlKitFormat = decoded.mlKitFormat,
+                    barcodeFormatOverride = decoded.barcodeFormat
+                )
                 _uiState.update {
                     it.copy(
                         isDecodingGallery = false,
@@ -92,10 +119,15 @@ class ScanViewModel(
                     )
                 }
             } else {
+                val msg = if (mode == ScanMode.BARCODE) {
+                    "No barcode found in the selected image."
+                } else {
+                    "No QR code found in the selected image."
+                }
                 _uiState.update {
                     it.copy(
                         isDecodingGallery = false,
-                        eventMessage = "No QR code found in the selected image."
+                        eventMessage = msg
                     )
                 }
             }

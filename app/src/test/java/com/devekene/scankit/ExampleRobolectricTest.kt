@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.devekene.scankit.data.local.ScanKitDatabase
+import com.devekene.scankit.data.model.BarcodeFormatType
 import com.devekene.scankit.data.model.ParsedQrPayload
+import com.devekene.scankit.data.model.QrContentType
 import com.devekene.scankit.data.model.QrSource
 import com.devekene.scankit.data.model.QrStyleConfig
 import com.devekene.scankit.data.model.SocialPlatform
@@ -13,6 +15,7 @@ import com.devekene.scankit.data.repository.QrHistoryRepository
 import com.devekene.scankit.qr.QrCodeGenerator
 import com.devekene.scankit.qr.QrPayloadBuilder
 import com.devekene.scankit.qr.QrPayloadParser
+import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.zxing.BinaryBitmap
 import com.google.zxing.MultiFormatReader
 import com.google.zxing.RGBLuminanceSource
@@ -21,6 +24,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -121,7 +125,59 @@ class ExampleRobolectricTest {
     }
 
     @Test
-    fun `room history repository records favorites and deletes entries`() = runTest {
+    fun `barcode validation enforces format rules`() {
+        assertNull(QrCodeGenerator.validateBarcodeInput("5901234123457", BarcodeFormatType.EAN_13))
+        assertNotNull(QrCodeGenerator.validateBarcodeInput("12345", BarcodeFormatType.EAN_13))
+
+        assertNull(QrCodeGenerator.validateBarcodeInput("036000291452", BarcodeFormatType.UPC_A))
+        assertNotNull(QrCodeGenerator.validateBarcodeInput("abc123", BarcodeFormatType.UPC_A))
+
+        assertNull(QrCodeGenerator.validateBarcodeInput("10012345678902", BarcodeFormatType.ITF))
+        assertNotNull(QrCodeGenerator.validateBarcodeInput("12345", BarcodeFormatType.ITF))
+
+        assertNull(QrCodeGenerator.validateBarcodeInput("ITEM-409", BarcodeFormatType.CODE_39))
+        assertNotNull(QrCodeGenerator.validateBarcodeInput("item_409", BarcodeFormatType.CODE_39))
+    }
+
+    @Test
+    fun `generated 1D barcode bitmaps decode back cleanly`() {
+        val cases = listOf(
+            BarcodeFormatType.CODE_128 to "SKU-2026-001",
+            BarcodeFormatType.EAN_13 to "5901234123457"
+        )
+        cases.forEach { (format, value) ->
+            val bitmap = QrCodeGenerator.generateBarcodeBitmap(
+                content = value,
+                format = format,
+                widthPx = 900,
+                heightPx = 360
+            )
+            assertNotNull("Expected bitmap for $format", bitmap)
+            val bmp = bitmap!!
+            val pixels = IntArray(bmp.width * bmp.height)
+            bmp.getPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
+            val source = RGBLuminanceSource(bmp.width, bmp.height, pixels)
+            val result = MultiFormatReader().decode(BinaryBitmap(HybridBinarizer(source)))
+            assertEquals(value, result.text)
+        }
+    }
+
+    @Test
+    fun `parseWithFormat classifies 1D barcodes into BarcodeItem`() {
+        val parsed = QrPayloadParser.parseWithFormat(
+            raw = "5901234123457",
+            mlKitFormat = Barcode.FORMAT_EAN_13
+        )
+        assertTrue(parsed is ParsedQrPayload.BarcodeItem)
+        val item = parsed as ParsedQrPayload.BarcodeItem
+        assertEquals("5901234123457", item.rawValue)
+        assertEquals("EAN-13", item.formatLabel)
+        assertEquals(BarcodeFormatType.EAN_13, item.barcodeFormat)
+        assertEquals(QrContentType.BARCODE, item.type)
+    }
+
+    @Test
+    fun `room history repository records favorites deletes and stores barcode format`() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = Room.inMemoryDatabaseBuilder(context, ScanKitDatabase::class.java)
             .allowMainThreadQueries()
@@ -133,11 +189,23 @@ class ExampleRobolectricTest {
         assertEquals(1, items.size)
         assertEquals("developer.android.com", items.first().displayTitle)
 
+        val barcodeId = repo.recordEntry(
+            rawContent = "5901234123457",
+            source = QrSource.CREATED,
+            barcodeFormatOverride = BarcodeFormatType.EAN_13
+        )
+        items = repo.allEntries.first()
+        assertEquals(2, items.size)
+        val savedBarcode = items.first { it.id == barcodeId }
+        assertEquals(QrContentType.BARCODE, savedBarcode.parsedType())
+        assertEquals(BarcodeFormatType.EAN_13, savedBarcode.parsedBarcodeFormat())
+
         repo.toggleFavorite(id, false)
         items = repo.allEntries.first()
-        assertTrue(items.first().isFavorite)
+        assertTrue(items.first { it.id == id }.isFavorite)
 
         repo.deleteById(id)
+        repo.deleteById(barcodeId)
         items = repo.allEntries.first()
         assertTrue(items.isEmpty())
         db.close()

@@ -37,11 +37,12 @@ import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.ViewWeek
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -74,6 +75,8 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.devekene.scankit.data.model.BarcodeFormatType
+import com.devekene.scankit.data.model.CreateKind
 import com.devekene.scankit.data.model.QrContentType
 import com.devekene.scankit.data.model.SocialPlatform
 import com.devekene.scankit.data.model.WifiSecurity
@@ -122,24 +125,26 @@ fun CreateScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 14.dp),
+                    .padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
                     Text(
-                        text = "QR Studio",
+                        text = "Code Studio",
                         style = MaterialTheme.typography.headlineMedium,
                         color = MaterialTheme.colorScheme.onBackground
                     )
                     Text(
-                        text = "Generate, style, save & share",
+                        text = "Create QR codes & barcodes",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
-                if (uiState.encodedPayload.isNotBlank()) {
+                if (uiState.encodedPayload.isNotBlank() ||
+                    (uiState.createKind == CreateKind.BARCODE && uiState.barcodeInput.isNotBlank())
+                ) {
                     TextButton(
                         onClick = { viewModel.clearCurrentForm() },
                         modifier = Modifier.testTag("create_clear_button")
@@ -155,35 +160,94 @@ fun CreateScreen(
                 }
             }
 
-            // Category selector strip
-            LazyRow(
-                contentPadding = PaddingValues(horizontal = 20.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+            // Primary mode switcher: QR Code vs Barcode
+            SingleChoiceSegmentedButtonRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp, vertical = 6.dp)
             ) {
-                items(QrContentType.entries) { category ->
-                    val style = qrTypeBadgeStyle(category)
-                    val selected = uiState.selectedCategory == category
-                    FilterChip(
-                        selected = selected,
-                        onClick = { viewModel.selectCategory(category) },
-                        label = { Text(category.label) },
-                        leadingIcon = {
+                CreateKind.entries.forEachIndexed { index, kind ->
+                    SegmentedButton(
+                        selected = uiState.createKind == kind,
+                        onClick = { viewModel.selectCreateKind(kind) },
+                        shape = SegmentedButtonDefaults.itemShape(
+                            index = index,
+                            count = CreateKind.entries.size
+                        ),
+                        icon = {
                             Icon(
-                                imageVector = style.icon,
+                                imageVector = if (kind == CreateKind.QR_CODE) {
+                                    Icons.Rounded.QrCode2
+                                } else {
+                                    Icons.Rounded.ViewWeek
+                                },
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
                             )
                         },
-                        modifier = Modifier.testTag("category_chip_${category.name.lowercase()}")
-                    )
+                        modifier = Modifier.testTag("create_kind_${kind.name.lowercase()}")
+                    ) {
+                        Text(kind.label)
+                    }
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            // Category / Symbology selector strip
+            if (uiState.createKind == CreateKind.QR_CODE) {
+                val qrCategories = remember {
+                    QrContentType.entries.filter { it != QrContentType.BARCODE }
+                }
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(qrCategories) { category ->
+                        val style = qrTypeBadgeStyle(category)
+                        val selected = uiState.selectedCategory == category
+                        FilterChip(
+                            selected = selected,
+                            onClick = { viewModel.selectCategory(category) },
+                            label = { Text(category.label) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = style.icon,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            modifier = Modifier.testTag("category_chip_${category.name.lowercase()}")
+                        )
+                    }
+                }
+            } else {
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    items(BarcodeFormatType.entries) { format ->
+                        val selected = uiState.barcodeFormat == format
+                        FilterChip(
+                            selected = selected,
+                            onClick = { viewModel.selectBarcodeFormat(format) },
+                            label = { Text(format.label) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Rounded.ViewWeek,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            modifier = Modifier.testTag("barcode_format_chip_${format.name.lowercase()}")
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
 
             if (isWideLayout) {
-                // Two-pane studio layout for tablets/foldables
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
@@ -198,7 +262,11 @@ fun CreateScreen(
                             .padding(bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        CategoryInputForm(uiState = uiState, viewModel = viewModel)
+                        if (uiState.createKind == CreateKind.BARCODE) {
+                            BarcodeInputForm(uiState = uiState, viewModel = viewModel)
+                        } else {
+                            CategoryInputForm(uiState = uiState, viewModel = viewModel)
+                        }
                     }
 
                     Column(
@@ -209,16 +277,15 @@ fun CreateScreen(
                             .padding(bottom = 24.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
-                        QrPreviewAndExportCard(
+                        CodePreviewAndExportCard(
                             uiState = uiState,
                             viewModel = viewModel,
                             onSavePng = { viewModel.saveAsPng(context) },
-                            onSharePng = { viewModel.shareQrPng(context) }
+                            onSharePng = { viewModel.shareCodePng(context) }
                         )
                     }
                 }
             } else {
-                // Single-column mobile layout
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
@@ -228,14 +295,18 @@ fun CreateScreen(
                         .padding(bottom = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(18.dp)
                 ) {
-                    QrPreviewAndExportCard(
+                    CodePreviewAndExportCard(
                         uiState = uiState,
                         viewModel = viewModel,
                         onSavePng = { viewModel.saveAsPng(context) },
-                        onSharePng = { viewModel.shareQrPng(context) }
+                        onSharePng = { viewModel.shareCodePng(context) }
                     )
 
-                    CategoryInputForm(uiState = uiState, viewModel = viewModel)
+                    if (uiState.createKind == CreateKind.BARCODE) {
+                        BarcodeInputForm(uiState = uiState, viewModel = viewModel)
+                    } else {
+                        CategoryInputForm(uiState = uiState, viewModel = viewModel)
+                    }
                 }
             }
         }
@@ -243,12 +314,14 @@ fun CreateScreen(
 }
 
 @Composable
-private fun QrPreviewAndExportCard(
+private fun CodePreviewAndExportCard(
     uiState: CreateUiState,
     viewModel: CreateViewModel,
     onSavePng: () -> Unit,
     onSharePng: () -> Unit
 ) {
+    val isBarcode = uiState.createKind == CreateKind.BARCODE
+
     Surface(
         color = MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(24.dp),
@@ -261,49 +334,93 @@ private fun QrPreviewAndExportCard(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // QR Preview Box
-            Surface(
-                color = Color.White,
-                shape = RoundedCornerShape(20.dp),
-                shadowElevation = if (uiState.previewBitmap != null) 4.dp else 0.dp,
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                modifier = Modifier.size(216.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                    val bmp = uiState.previewBitmap
-                    if (bmp != null) {
-                        Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = "Generated QR code preview",
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(10.dp)
-                                .testTag("create_qr_preview_image")
-                        )
-                    } else {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(20.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.QrCode2,
-                                contentDescription = null,
-                                tint = Color(0xFF94A3B8),
-                                modifier = Modifier.size(56.dp)
+            if (isBarcode) {
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(18.dp),
+                    shadowElevation = if (uiState.previewBitmap != null) 4.dp else 0.dp,
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(150.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        val bmp = uiState.previewBitmap
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "Generated ${uiState.barcodeFormat.label} barcode preview",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(10.dp)
+                                    .testTag("create_barcode_preview_image")
                             )
-                            Text(
-                                text = "Fill in details below to preview QR code",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = Color(0xFF64748B),
-                                textAlign = TextAlign.Center
+                        } else {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(16.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.ViewWeek,
+                                    contentDescription = null,
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(46.dp)
+                                )
+                                Text(
+                                    text = "Enter a valid ${uiState.barcodeFormat.label} value below",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF64748B),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+                    }
+                }
+            } else {
+                Surface(
+                    color = Color.White,
+                    shape = RoundedCornerShape(20.dp),
+                    shadowElevation = if (uiState.previewBitmap != null) 4.dp else 0.dp,
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                    modifier = Modifier.size(216.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                        val bmp = uiState.previewBitmap
+                        if (bmp != null) {
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "Generated QR code preview",
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(10.dp)
+                                    .testTag("create_qr_preview_image")
                             )
+                        } else {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(20.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.QrCode2,
+                                    contentDescription = null,
+                                    tint = Color(0xFF94A3B8),
+                                    modifier = Modifier.size(56.dp)
+                                )
+                                Text(
+                                    text = "Fill in details below to preview QR code",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Color(0xFF64748B),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            // Style customization bar: color swatches + rounded modules toggle
+            // Style customization bar: color swatches + (for QR) rounded modules toggle
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -335,28 +452,44 @@ private fun QrPreviewAndExportCard(
                     }
                 }
 
-                FilterChip(
-                    selected = uiState.styleConfig.roundedModules,
-                    onClick = { viewModel.setRoundedModules(!uiState.styleConfig.roundedModules) },
-                    label = {
+                if (!isBarcode) {
+                    FilterChip(
+                        selected = uiState.styleConfig.roundedModules,
+                        onClick = { viewModel.setRoundedModules(!uiState.styleConfig.roundedModules) },
+                        label = {
+                            Text(
+                                text = if (uiState.styleConfig.roundedModules) "Rounded" else "Sharp",
+                                style = MaterialTheme.typography.labelMedium
+                            )
+                        },
+                        modifier = Modifier.testTag("toggle_rounded_modules")
+                    )
+                } else {
+                    Surface(
+                        color = MaterialTheme.colorScheme.secondaryContainer,
+                        shape = RoundedCornerShape(50)
+                    ) {
                         Text(
-                            text = if (uiState.styleConfig.roundedModules) "Rounded" else "Sharp",
-                            style = MaterialTheme.typography.labelMedium
+                            text = uiState.barcodeFormat.label,
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                         )
-                    },
-                    modifier = Modifier.testTag("toggle_rounded_modules")
-                )
+                    }
+                }
             }
 
             // Export Actions
-            val hasPayload = uiState.encodedPayload.isNotBlank() && !uiState.isExporting
+            val canExport = uiState.encodedPayload.isNotBlank() &&
+                uiState.previewBitmap != null &&
+                !uiState.isExporting
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 Button(
                     onClick = onSavePng,
-                    enabled = hasPayload,
+                    enabled = canExport,
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
@@ -374,7 +507,7 @@ private fun QrPreviewAndExportCard(
 
                 FilledTonalButton(
                     onClick = onSharePng,
-                    enabled = hasPayload,
+                    enabled = canExport,
                     modifier = Modifier
                         .weight(1f)
                         .height(48.dp)
@@ -393,7 +526,7 @@ private fun QrPreviewAndExportCard(
 
             OutlinedButton(
                 onClick = { viewModel.saveToHistory() },
-                enabled = uiState.encodedPayload.isNotBlank(),
+                enabled = uiState.encodedPayload.isNotBlank() && uiState.previewBitmap != null,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(48.dp)
@@ -407,6 +540,80 @@ private fun QrPreviewAndExportCard(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text("Save to History")
+            }
+        }
+    }
+}
+
+@Composable
+private fun BarcodeInputForm(
+    uiState: CreateUiState,
+    viewModel: CreateViewModel
+) {
+    val format = uiState.barcodeFormat
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(24.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Text(
+                text = "${format.label} Barcode Value",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            OutlinedTextField(
+                value = uiState.barcodeInput,
+                onValueChange = viewModel::updateBarcodeInput,
+                label = { Text("${format.label} Data") },
+                placeholder = { Text(format.placeholder) },
+                singleLine = true,
+                isError = uiState.barcodeValidationError != null,
+                supportingText = {
+                    Text(
+                        text = uiState.barcodeValidationError ?: format.hint,
+                        color = if (uiState.barcodeValidationError != null) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = when (format) {
+                        BarcodeFormatType.EAN_13,
+                        BarcodeFormatType.EAN_8,
+                        BarcodeFormatType.UPC_A,
+                        BarcodeFormatType.ITF -> KeyboardType.Number
+                        else -> KeyboardType.Ascii
+                    }
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("input_barcode_value")
+            )
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FilterChip(
+                    selected = false,
+                    onClick = { viewModel.updateBarcodeInput(format.placeholder) },
+                    label = {
+                        Text(
+                            text = "Sample: ${format.placeholder}",
+                            fontFamily = JetBrainsMonoFamily
+                        )
+                    },
+                    modifier = Modifier.testTag("barcode_sample_chip")
+                )
             }
         }
     }
@@ -695,7 +902,8 @@ private fun CategoryInputForm(
                     }
                 }
 
-                QrContentType.TEXT -> {
+                QrContentType.TEXT,
+                QrContentType.BARCODE -> {
                     OutlinedTextField(
                         value = uiState.textInput,
                         onValueChange = viewModel::updateTextInput,

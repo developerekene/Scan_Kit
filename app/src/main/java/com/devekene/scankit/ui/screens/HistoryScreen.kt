@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.ContentCopy
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.devekene.scankit.data.local.HistoryEntity
+import com.devekene.scankit.data.model.BarcodeFormatType
 import com.devekene.scankit.data.model.QrSource
 import com.devekene.scankit.data.model.QrStyleConfig
 import com.devekene.scankit.qr.QrPayloadParser
@@ -75,9 +77,10 @@ import com.devekene.scankit.ui.viewmodel.HistoryViewModel
 @Composable
 fun HistoryScreen(
     viewModel: HistoryViewModel,
+    onBackClick: (() -> Unit)? = null,
     onNavigateToScan: () -> Unit,
     onNavigateToCreate: () -> Unit,
-    onEditInGenerator: (String) -> Unit,
+    onEditInGenerator: (String, BarcodeFormatType?) -> Unit,
     onShowMessage: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -95,21 +98,41 @@ fun HistoryScreen(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
-                Text(
-                    text = "History",
-                    style = MaterialTheme.typography.headlineMedium,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Text(
-                    text = "${uiState.totalCount} saved QR records",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                if (onBackClick != null) {
+                    IconButton(
+                        onClick = onBackClick,
+                        modifier = Modifier
+                            .size(48.dp)
+                            .testTag("history_back_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                            contentDescription = "Back to scanner",
+                            tint = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                }
+
+                Column {
+                    Text(
+                        text = "History",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Text(
+                        text = "${uiState.totalCount} saved QR & barcode records",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
             }
 
             if (uiState.totalCount > 0) {
@@ -132,7 +155,7 @@ fun HistoryScreen(
         OutlinedTextField(
             value = uiState.searchQuery,
             onValueChange = viewModel::updateSearchQuery,
-            placeholder = { Text("Search links, Wi-Fi, contacts, text...") },
+            placeholder = { Text("Search links, barcodes, Wi-Fi, contacts...") },
             leadingIcon = {
                 Icon(imageVector = Icons.Rounded.Search, contentDescription = null)
             },
@@ -209,7 +232,13 @@ fun HistoryScreen(
 
     // Detail Modal Sheet
     uiState.selectedEntry?.let { entry ->
-        val parsed = remember(entry.rawContent) { QrPayloadParser.parse(entry.rawContent) }
+        val barcodeFmt = entry.parsedBarcodeFormat()
+        val parsed = remember(entry.rawContent, barcodeFmt) {
+            QrPayloadParser.parseWithFormat(
+                raw = entry.rawContent,
+                barcodeFormatOverride = barcodeFmt
+            )
+        }
         val styleConfig = remember(entry) {
             QrStyleConfig(
                 foregroundColor = entry.foregroundColor,
@@ -231,8 +260,8 @@ fun HistoryScreen(
     if (showClearConfirm) {
         AlertDialog(
             onDismissRequest = { showClearConfirm = false },
-            title = { Text("Clear QR History?") },
-            text = { Text("This will remove all scanned and created QR records stored on this device.") },
+            title = { Text("Clear History?") },
+            text = { Text("This will remove all scanned and created QR & barcode records stored on this device.") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -263,6 +292,7 @@ private fun HistoryEntryCard(
     onDelete: () -> Unit
 ) {
     val badge = qrTypeBadgeStyle(entry.parsedType())
+    val formatLabel = entry.parsedBarcodeFormat()?.label ?: badge.label
     val sourceLabel = if (entry.parsedSource() == QrSource.CREATED) "Created" else "Scanned"
     val relativeTime = remember(entry.timestamp) {
         DateUtils.getRelativeTimeSpanString(
@@ -295,7 +325,7 @@ private fun HistoryEntryCard(
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = badge.icon,
-                        contentDescription = badge.label,
+                        contentDescription = formatLabel,
                         tint = badge.contentColor,
                         modifier = Modifier.size(22.dp)
                     )
@@ -341,7 +371,7 @@ private fun HistoryEntryCard(
                 )
 
                 Text(
-                    text = "${badge.label} • $relativeTime",
+                    text = "$formatLabel • $relativeTime",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)
                 )
@@ -370,7 +400,7 @@ private fun HistoryEntryCard(
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.ContentCopy,
-                        contentDescription = "Copy QR content",
+                        contentDescription = "Copy content",
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(18.dp)
                     )
@@ -422,7 +452,7 @@ private fun HistoryEmptyState(
         Spacer(modifier = Modifier.height(16.dp))
 
         Text(
-            text = if (hasAnyEntries) "No Matching Records" else "No QR History Yet",
+            text = if (hasAnyEntries) "No Matching Records" else "No History Yet",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
             color = MaterialTheme.colorScheme.onBackground
@@ -434,7 +464,7 @@ private fun HistoryEmptyState(
             text = if (hasAnyEntries) {
                 "Try a different filter or search keyword."
             } else {
-                "Codes you scan or create in QR Studio appear here for quick access."
+                "QR codes and barcodes you scan or create appear here for quick access."
             },
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -455,7 +485,7 @@ private fun HistoryEmptyState(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Scan QR")
+                    Text("Scan")
                 }
 
                 FilledTonalButton(
@@ -469,7 +499,7 @@ private fun HistoryEmptyState(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Create QR")
+                    Text("Create")
                 }
             }
         }

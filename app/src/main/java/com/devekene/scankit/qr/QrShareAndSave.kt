@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.net.URLEncoder
 
 object QrShareAndSave {
 
@@ -30,7 +31,7 @@ object QrShareAndSave {
     suspend fun saveQrToGallery(context: Context, bitmap: Bitmap): Result<String> =
         withContext(Dispatchers.IO) {
             runCatching {
-                val fileName = "ScanKit_QR_${System.currentTimeMillis()}.png"
+                val fileName = "ScanKit_${System.currentTimeMillis()}.png"
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     val values = ContentValues().apply {
                         put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
@@ -67,17 +68,16 @@ object QrShareAndSave {
                         arrayOf("image/png"),
                         null
                     )
-                    "Saved QR image: ${file.name}"
+                    "Saved image: ${file.name}"
                 }
             }
         }
 
-    suspend fun shareQrImage(context: Context, bitmap: Bitmap, title: String = "ScanKit QR Code") {
+    suspend fun shareQrImage(context: Context, bitmap: Bitmap, title: String = "ScanKit Code") {
         val uri = withContext(Dispatchers.IO) {
             val sharedDir = File(context.cacheDir, "shared_qr").apply { mkdirs() }
-            // Clean previous temp shares
             sharedDir.listFiles()?.forEach { it.delete() }
-            val file = File(sharedDir, "scankit_qr_${System.currentTimeMillis()}.png")
+            val file = File(sharedDir, "scankit_code_${System.currentTimeMillis()}.png")
             FileOutputStream(file).use { out ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
             }
@@ -90,19 +90,19 @@ object QrShareAndSave {
             putExtra(Intent.EXTRA_SUBJECT, title)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        val chooser = Intent.createChooser(shareIntent, "Share QR Code").apply {
+        val chooser = Intent.createChooser(shareIntent, "Share Image").apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(chooser)
     }
 
-    fun shareText(context: Context, text: String, subject: String = "QR Content") {
+    fun shareText(context: Context, text: String, subject: String = "Scanned Content") {
         val intent = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, subject)
             putExtra(Intent.EXTRA_TEXT, text)
         }
-        val chooser = Intent.createChooser(intent, "Share QR Content").apply {
+        val chooser = Intent.createChooser(intent, "Share Content").apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(chooser)
@@ -162,6 +162,15 @@ object QrShareAndSave {
                 } else {
                     "Opening Wi-Fi Settings for \"${payload.ssid}\""
                 }
+            }
+            is ParsedQrPayload.BarcodeItem -> {
+                val encoded = runCatching { URLEncoder.encode(payload.rawValue, "UTF-8") }
+                    .getOrDefault(payload.rawValue)
+                launchSafe(
+                    context,
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://www.google.com/search?q=$encoded"))
+                )
+                null
             }
             is ParsedQrPayload.Text -> {
                 copyToClipboard(context, "QR Text", payload.rawValue)

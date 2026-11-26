@@ -2,9 +2,7 @@ package com.devekene.scankit.ui.components
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,6 +23,7 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.PersonAdd
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
@@ -61,6 +60,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.devekene.scankit.data.model.BarcodeFormatType
 import com.devekene.scankit.data.model.ParsedQrPayload
 import com.devekene.scankit.data.model.QrStyleConfig
 import com.devekene.scankit.qr.QrCodeGenerator
@@ -77,7 +77,7 @@ fun QrResultBottomSheet(
     styleConfig: QrStyleConfig = QrStyleConfig(),
     isFavorite: Boolean? = null,
     onToggleFavorite: (() -> Unit)? = null,
-    onEditInGenerator: ((String) -> Unit)? = null,
+    onEditInGenerator: ((String, BarcodeFormatType?) -> Unit)? = null,
     onFeedbackMessage: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -85,14 +85,26 @@ fun QrResultBottomSheet(
     val scope = rememberCoroutineScope()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val badgeStyle = qrTypeBadgeStyle(payload.type)
+    val barcodeFormat = (payload as? ParsedQrPayload.BarcodeItem)?.barcodeFormat
 
-    val qrBitmap by produceState<Bitmap?>(initialValue = null, payload.rawValue, styleConfig) {
+    val previewBitmap by produceState<Bitmap?>(initialValue = null, payload.rawValue, styleConfig, barcodeFormat) {
         value = withContext(Dispatchers.Default) {
-            QrCodeGenerator.generateBitmap(
-                content = payload.rawValue,
-                sizePx = 560,
-                styleConfig = styleConfig
-            )
+            if (barcodeFormat != null) {
+                QrCodeGenerator.generateBarcodeBitmap(
+                    content = payload.rawValue,
+                    format = barcodeFormat,
+                    widthPx = 900,
+                    heightPx = 320,
+                    foregroundColor = styleConfig.foregroundColor,
+                    backgroundColor = styleConfig.backgroundColor
+                ) ?: QrCodeGenerator.generateBitmap(payload.rawValue, 560, styleConfig)
+            } else {
+                QrCodeGenerator.generateBitmap(
+                    content = payload.rawValue,
+                    sizePx = 560,
+                    styleConfig = styleConfig
+                )
+            }
         }
     }
 
@@ -133,7 +145,11 @@ fun QrResultBottomSheet(
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
-                            text = badgeStyle.label,
+                            text = if (payload is ParsedQrPayload.BarcodeItem) {
+                                "Barcode • ${payload.formatLabel}"
+                            } else {
+                                badgeStyle.label
+                            },
                             style = MaterialTheme.typography.labelLarge,
                             color = badgeStyle.contentColor
                         )
@@ -144,14 +160,14 @@ fun QrResultBottomSheet(
                     if (onEditInGenerator != null) {
                         FilledTonalIconButton(
                             onClick = {
-                                onEditInGenerator(payload.rawValue)
+                                onEditInGenerator(payload.rawValue, barcodeFormat)
                                 onDismiss()
                             },
                             modifier = Modifier.testTag("result_edit_qr_button")
                         ) {
                             Icon(
                                 imageVector = Icons.Rounded.Edit,
-                                contentDescription = "Customize in QR Studio"
+                                contentDescription = "Customize in Create Studio"
                             )
                         }
                     }
@@ -170,47 +186,73 @@ fun QrResultBottomSheet(
                 }
             }
 
-            // QR Thumbnail + Title summary
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                qrBitmap?.let { bmp ->
+            // Code Thumbnail + Title summary
+            if (barcodeFormat != null && previewBitmap != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Surface(
                         color = Color.White,
                         shape = RoundedCornerShape(16.dp),
                         shadowElevation = 2.dp,
-                        modifier = Modifier.size(92.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Image(
-                            bitmap = bmp.asImageBitmap(),
-                            contentDescription = "QR code preview",
+                            bitmap = previewBitmap!!.asImageBitmap(),
+                            contentDescription = "Barcode preview",
                             modifier = Modifier
-                                .padding(6.dp)
-                                .clip(RoundedCornerShape(10.dp))
+                                .fillMaxWidth()
+                                .height(116.dp)
+                                .padding(10.dp)
                         )
                     }
-                }
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
                     Text(
                         text = payload.title,
+                        fontFamily = JetBrainsMonoFamily,
                         style = MaterialTheme.typography.titleLarge,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-                    Text(
-                        text = payload.subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    previewBitmap?.let { bmp ->
+                        Surface(
+                            color = Color.White,
+                            shape = RoundedCornerShape(16.dp),
+                            shadowElevation = 2.dp,
+                            modifier = Modifier.size(92.dp)
+                        ) {
+                            Image(
+                                bitmap = bmp.asImageBitmap(),
+                                contentDescription = "QR code preview",
+                                modifier = Modifier
+                                    .padding(6.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                            )
+                        }
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = payload.title,
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = payload.subtitle,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
             }
 
@@ -250,14 +292,14 @@ fun QrResultBottomSheet(
                 )
             }
 
-            // Secondary actions: Copy / Share Text / Save PNG / Share QR Image
+            // Secondary actions: Copy / Share Text / Save PNG / Share Image
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilledTonalButton(
                     onClick = {
-                        QrShareAndSave.copyToClipboard(context, "QR Content", payload.rawValue)
+                        QrShareAndSave.copyToClipboard(context, "Scanned Content", payload.rawValue)
                         onFeedbackMessage("Copied to clipboard")
                     },
                     modifier = Modifier
@@ -301,11 +343,22 @@ fun QrResultBottomSheet(
                     onClick = {
                         scope.launch {
                             val exportBmp = withContext(Dispatchers.Default) {
-                                QrCodeGenerator.generateBitmap(
-                                    content = payload.rawValue,
-                                    sizePx = 1024,
-                                    styleConfig = styleConfig
-                                )
+                                if (barcodeFormat != null) {
+                                    QrCodeGenerator.generateBarcodeBitmap(
+                                        content = payload.rawValue,
+                                        format = barcodeFormat,
+                                        widthPx = 1200,
+                                        heightPx = 460,
+                                        foregroundColor = styleConfig.foregroundColor,
+                                        backgroundColor = styleConfig.backgroundColor
+                                    )
+                                } else {
+                                    QrCodeGenerator.generateBitmap(
+                                        content = payload.rawValue,
+                                        sizePx = 1024,
+                                        styleConfig = styleConfig
+                                    )
+                                }
                             }
                             if (exportBmp != null) {
                                 val res = QrShareAndSave.saveQrToGallery(context, exportBmp)
@@ -333,11 +386,22 @@ fun QrResultBottomSheet(
                     onClick = {
                         scope.launch {
                             val exportBmp = withContext(Dispatchers.Default) {
-                                QrCodeGenerator.generateBitmap(
-                                    content = payload.rawValue,
-                                    sizePx = 1024,
-                                    styleConfig = styleConfig
-                                )
+                                if (barcodeFormat != null) {
+                                    QrCodeGenerator.generateBarcodeBitmap(
+                                        content = payload.rawValue,
+                                        format = barcodeFormat,
+                                        widthPx = 1200,
+                                        heightPx = 460,
+                                        foregroundColor = styleConfig.foregroundColor,
+                                        backgroundColor = styleConfig.backgroundColor
+                                    )
+                                } else {
+                                    QrCodeGenerator.generateBitmap(
+                                        content = payload.rawValue,
+                                        sizePx = 1024,
+                                        styleConfig = styleConfig
+                                    )
+                                }
                             }
                             if (exportBmp != null) {
                                 QrShareAndSave.shareQrImage(context, exportBmp, payload.title)
@@ -355,7 +419,7 @@ fun QrResultBottomSheet(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Share QR")
+                    Text(if (barcodeFormat != null) "Share Image" else "Share QR")
                 }
             }
         }
@@ -443,6 +507,12 @@ private fun ParsedDetailsCard(
                     DetailFieldRow("Domain", payload.host)
                     DetailFieldRow("Destination URL", payload.normalizedUrl, isMonospace = true)
                 }
+                is ParsedQrPayload.BarcodeItem -> {
+                    DetailFieldRow("Symbology", payload.formatLabel)
+                    DetailFieldRow("Barcode Value", payload.rawValue, isMonospace = true, onCopy = {
+                        onCopyField("Barcode", payload.rawValue)
+                    })
+                }
                 is ParsedQrPayload.Text -> {
                     Text(
                         text = "Content",
@@ -458,7 +528,7 @@ private fun ParsedDetailsCard(
                 }
             }
 
-            if (payload !is ParsedQrPayload.Text) {
+            if (payload !is ParsedQrPayload.Text && payload !is ParsedQrPayload.BarcodeItem) {
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(
@@ -531,6 +601,7 @@ private fun primaryActionMeta(payload: ParsedQrPayload): PrimaryActionMeta {
         is ParsedQrPayload.Contact -> PrimaryActionMeta("Save to Contacts", Icons.Rounded.PersonAdd)
         is ParsedQrPayload.Email -> PrimaryActionMeta("Compose Email", Icons.Rounded.Email)
         is ParsedQrPayload.Phone -> PrimaryActionMeta("Dial Number", Icons.Rounded.Call)
+        is ParsedQrPayload.BarcodeItem -> PrimaryActionMeta("Search Code Online", Icons.Rounded.Search)
         is ParsedQrPayload.Text -> PrimaryActionMeta("Copy Text", Icons.Rounded.ContentCopy)
     }
 }

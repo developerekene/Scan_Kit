@@ -19,6 +19,7 @@ enum class HistoryFilter(val label: String) {
     SCANNED("Scanned"),
     CREATED("Created"),
     FAVORITES("Favorites"),
+    BARCODES("Barcodes"),
     URL("Links"),
     WIFI("Wi-Fi"),
     CONTACT("Contacts")
@@ -51,6 +52,7 @@ class HistoryViewModel(
             HistoryFilter.SCANNED -> all.filter { it.parsedSource() == QrSource.SCANNED }
             HistoryFilter.CREATED -> all.filter { it.parsedSource() == QrSource.CREATED }
             HistoryFilter.FAVORITES -> all.filter { it.isFavorite }
+            HistoryFilter.BARCODES -> all.filter { it.parsedType() == QrContentType.BARCODE }
             HistoryFilter.URL -> all.filter {
                 it.parsedType() == QrContentType.URL || it.parsedType() == QrContentType.SOCIAL
             }

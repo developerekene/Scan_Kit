@@ -1,13 +1,51 @@
 package com.devekene.scankit.qr
 
 import android.net.Uri
+import com.devekene.scankit.data.model.BarcodeFormatType
 import com.devekene.scankit.data.model.ParsedQrPayload
 import com.devekene.scankit.data.model.SocialPlatform
 import com.devekene.scankit.data.model.WifiSecurity
+import com.google.mlkit.vision.barcode.common.Barcode
 import java.net.URLDecoder
 import java.net.URLEncoder
 
 object QrPayloadParser {
+
+    fun parseWithFormat(
+        raw: String,
+        mlKitFormat: Int? = null,
+        barcodeFormatOverride: BarcodeFormatType? = null
+    ): ParsedQrPayload {
+        if (barcodeFormatOverride != null) {
+            return ParsedQrPayload.BarcodeItem(
+                rawValue = raw.trim(),
+                formatLabel = barcodeFormatOverride.label,
+                barcodeFormat = barcodeFormatOverride
+            )
+        }
+        if (mlKitFormat != null && isOneDimensionalBarcode(mlKitFormat)) {
+            return ParsedQrPayload.BarcodeItem(
+                rawValue = raw.trim(),
+                formatLabel = BarcodeFormatType.formatLabelFromMlKit(mlKitFormat),
+                barcodeFormat = BarcodeFormatType.fromMlKitFormat(mlKitFormat)
+            )
+        }
+        return parse(raw)
+    }
+
+    private fun isOneDimensionalBarcode(format: Int): Boolean {
+        return format in setOf(
+            Barcode.FORMAT_EAN_13,
+            Barcode.FORMAT_EAN_8,
+            Barcode.FORMAT_UPC_A,
+            Barcode.FORMAT_UPC_E,
+            Barcode.FORMAT_CODE_128,
+            Barcode.FORMAT_CODE_39,
+            Barcode.FORMAT_CODE_93,
+            Barcode.FORMAT_CODABAR,
+            Barcode.FORMAT_ITF
+        )
+    }
 
     fun parse(raw: String): ParsedQrPayload {
         val trimmed = raw.trim()

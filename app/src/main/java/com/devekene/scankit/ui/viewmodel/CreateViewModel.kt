@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.devekene.scankit.data.model.BarcodeFormatType
+import com.devekene.scankit.data.model.CreateKind
 import com.devekene.scankit.data.model.ParsedQrPayload
 import com.devekene.scankit.data.model.QrContentType
 import com.devekene.scankit.data.model.QrSource
@@ -26,6 +28,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 data class CreateUiState(
+    val createKind: CreateKind = CreateKind.QR_CODE,
     val selectedCategory: QrContentType = QrContentType.URL,
     val urlInput: String = "",
     val textInput: String = "",
@@ -44,6 +47,9 @@ data class CreateUiState(
     val phoneInput: String = "",
     val socialPlatform: SocialPlatform = SocialPlatform.INSTAGRAM,
     val socialHandle: String = "",
+    val barcodeFormat: BarcodeFormatType = BarcodeFormatType.CODE_128,
+    val barcodeInput: String = "",
+    val barcodeValidationError: String? = null,
     val styleConfig: QrStyleConfig = QrStyleConfig(),
     val encodedPayload: String = "",
     val previewBitmap: Bitmap? = null,
@@ -61,8 +67,27 @@ class CreateViewModel(
     private var previewJob: Job? = null
     private var lastSavedSignature: String? = null
 
+    fun selectCreateKind(kind: CreateKind) {
+        updateStateAndRebuild { state ->
+            val nextCategory = if (kind == CreateKind.QR_CODE && state.selectedCategory == QrContentType.BARCODE) {
+                QrContentType.URL
+            } else {
+                state.selectedCategory
+            }
+            state.copy(createKind = kind, selectedCategory = nextCategory)
+        }
+    }
+
     fun selectCategory(category: QrContentType) {
         updateStateAndRebuild { it.copy(selectedCategory = category) }
+    }
+
+    fun selectBarcodeFormat(format: BarcodeFormatType) {
+        updateStateAndRebuild { it.copy(barcodeFormat = format) }
+    }
+
+    fun updateBarcodeInput(value: String) {
+        updateStateAndRebuild { it.copy(barcodeInput = value) }
     }
 
     fun updateUrlInput(value: String) {
@@ -145,36 +170,50 @@ class CreateViewModel(
         }
     }
 
-    fun setHighErrorCorrection(high: Boolean) {
-        updateStateAndRebuild {
-            it.copy(styleConfig = it.styleConfig.copy(errorCorrectionHigh = high))
-        }
-    }
-
     fun clearCurrentForm() {
         updateStateAndRebuild { state ->
-            when (state.selectedCategory) {
-                QrContentType.URL -> state.copy(urlInput = "")
-                QrContentType.TEXT -> state.copy(textInput = "")
-                QrContentType.WIFI -> state.copy(wifiSsid = "", wifiPassword = "", wifiHidden = false)
-                QrContentType.CONTACT -> state.copy(
-                    contactName = "",
-                    contactPhone = "",
-                    contactEmail = "",
-                    contactOrg = "",
-                    contactWebsite = ""
-                )
-                QrContentType.EMAIL -> state.copy(emailAddress = "", emailSubject = "", emailBody = "")
-                QrContentType.PHONE -> state.copy(phoneInput = "")
-                QrContentType.SOCIAL -> state.copy(socialHandle = "")
+            if (state.createKind == CreateKind.BARCODE) {
+                state.copy(barcodeInput = "")
+            } else {
+                when (state.selectedCategory) {
+                    QrContentType.URL -> state.copy(urlInput = "")
+                    QrContentType.TEXT -> state.copy(textInput = "")
+                    QrContentType.WIFI -> state.copy(wifiSsid = "", wifiPassword = "", wifiHidden = false)
+                    QrContentType.CONTACT -> state.copy(
+                        contactName = "",
+                        contactPhone = "",
+                        contactEmail = "",
+                        contactOrg = "",
+                        contactWebsite = ""
+                    )
+                    QrContentType.EMAIL -> state.copy(emailAddress = "", emailSubject = "", emailBody = "")
+                    QrContentType.PHONE -> state.copy(phoneInput = "")
+                    QrContentType.SOCIAL -> state.copy(socialHandle = "")
+                    QrContentType.BARCODE -> state.copy(barcodeInput = "")
+                }
             }
         }
     }
 
-    fun prefillFromRawPayload(rawContent: String) {
+    fun prefillFromRawPayload(rawContent: String, barcodeFormat: BarcodeFormatType? = null) {
+        if (barcodeFormat != null) {
+            updateStateAndRebuild {
+                it.copy(
+                    createKind = CreateKind.BARCODE,
+                    barcodeFormat = barcodeFormat,
+                    barcodeInput = rawContent
+                )
+            }
+            return
+        }
+
         when (val parsed = QrPayloadParser.parse(rawContent)) {
             is ParsedQrPayload.Url -> updateStateAndRebuild {
-                it.copy(selectedCategory = QrContentType.URL, urlInput = parsed.normalizedUrl)
+                it.copy(
+                    createKind = CreateKind.QR_CODE,
+                    selectedCategory = QrContentType.URL,
+                    urlInput = parsed.normalizedUrl
+                )
             }
             is ParsedQrPayload.Wifi -> updateStateAndRebuild {
                 val sec = when {
@@ -183,6 +222,7 @@ class CreateViewModel(
                     else -> WifiSecurity.WPA
                 }
                 it.copy(
+                    createKind = CreateKind.QR_CODE,
                     selectedCategory = QrContentType.WIFI,
                     wifiSsid = parsed.ssid,
                     wifiPassword = parsed.password,
@@ -192,6 +232,7 @@ class CreateViewModel(
             }
             is ParsedQrPayload.Contact -> updateStateAndRebuild {
                 it.copy(
+                    createKind = CreateKind.QR_CODE,
                     selectedCategory = QrContentType.CONTACT,
                     contactName = parsed.name,
                     contactPhone = parsed.phone,
@@ -202,6 +243,7 @@ class CreateViewModel(
             }
             is ParsedQrPayload.Email -> updateStateAndRebuild {
                 it.copy(
+                    createKind = CreateKind.QR_CODE,
                     selectedCategory = QrContentType.EMAIL,
                     emailAddress = parsed.address,
                     emailSubject = parsed.subject,
@@ -209,17 +251,33 @@ class CreateViewModel(
                 )
             }
             is ParsedQrPayload.Phone -> updateStateAndRebuild {
-                it.copy(selectedCategory = QrContentType.PHONE, phoneInput = parsed.phoneNumber)
+                it.copy(
+                    createKind = CreateKind.QR_CODE,
+                    selectedCategory = QrContentType.PHONE,
+                    phoneInput = parsed.phoneNumber
+                )
             }
             is ParsedQrPayload.Social -> updateStateAndRebuild {
                 it.copy(
+                    createKind = CreateKind.QR_CODE,
                     selectedCategory = QrContentType.SOCIAL,
                     socialPlatform = SocialPlatform.CUSTOM,
                     socialHandle = parsed.normalizedUrl
                 )
             }
+            is ParsedQrPayload.BarcodeItem -> updateStateAndRebuild {
+                it.copy(
+                    createKind = CreateKind.BARCODE,
+                    barcodeFormat = parsed.barcodeFormat ?: BarcodeFormatType.CODE_128,
+                    barcodeInput = parsed.rawValue
+                )
+            }
             is ParsedQrPayload.Text -> updateStateAndRebuild {
-                it.copy(selectedCategory = QrContentType.TEXT, textInput = parsed.rawValue)
+                it.copy(
+                    createKind = CreateKind.QR_CODE,
+                    selectedCategory = QrContentType.TEXT,
+                    textInput = parsed.rawValue
+                )
             }
         }
     }
@@ -227,12 +285,12 @@ class CreateViewModel(
     fun saveToHistory() {
         val state = _uiState.value
         val payload = state.encodedPayload
-        if (payload.isBlank()) {
-            _uiState.update { it.copy(eventMessage = "Enter content to generate a QR code first.") }
+        if (payload.isBlank() || state.previewBitmap == null) {
+            _uiState.update { it.copy(eventMessage = "Enter valid content to generate a code first.") }
             return
         }
         viewModelScope.launch {
-            recordIfNotDuplicate(payload, state.styleConfig)
+            recordIfNotDuplicate(state, payload)
             _uiState.update { it.copy(eventMessage = "Saved to History") }
         }
     }
@@ -240,26 +298,22 @@ class CreateViewModel(
     fun saveAsPng(context: Context) {
         val state = _uiState.value
         val payload = state.encodedPayload
-        if (payload.isBlank() || state.isExporting) return
+        if (payload.isBlank() || state.previewBitmap == null || state.isExporting) return
 
         _uiState.update { it.copy(isExporting = true) }
         viewModelScope.launch {
             val highResBitmap = withContext(Dispatchers.Default) {
-                QrCodeGenerator.generateBitmap(
-                    content = payload,
-                    sizePx = 1024,
-                    styleConfig = state.styleConfig
-                )
+                renderHighResBitmap(state, payload)
             }
             if (highResBitmap == null) {
                 _uiState.update {
-                    it.copy(isExporting = false, eventMessage = "Could not render QR image.")
+                    it.copy(isExporting = false, eventMessage = "Could not render image.")
                 }
                 return@launch
             }
 
             val result = QrShareAndSave.saveQrToGallery(context.applicationContext, highResBitmap)
-            recordIfNotDuplicate(payload, state.styleConfig)
+            recordIfNotDuplicate(state, payload)
 
             _uiState.update {
                 it.copy(
@@ -272,22 +326,18 @@ class CreateViewModel(
         }
     }
 
-    fun shareQrPng(context: Context) {
+    fun shareCodePng(context: Context) {
         val state = _uiState.value
         val payload = state.encodedPayload
-        if (payload.isBlank() || state.isExporting) return
+        if (payload.isBlank() || state.previewBitmap == null || state.isExporting) return
 
         _uiState.update { it.copy(isExporting = true) }
         viewModelScope.launch {
             val highResBitmap = withContext(Dispatchers.Default) {
-                QrCodeGenerator.generateBitmap(
-                    content = payload,
-                    sizePx = 1024,
-                    styleConfig = state.styleConfig
-                )
+                renderHighResBitmap(state, payload)
             }
             if (highResBitmap != null) {
-                recordIfNotDuplicate(payload, state.styleConfig)
+                recordIfNotDuplicate(state, payload)
                 QrShareAndSave.shareQrImage(context, highResBitmap)
             }
             _uiState.update { it.copy(isExporting = false) }
@@ -298,25 +348,63 @@ class CreateViewModel(
         _uiState.update { it.copy(eventMessage = null) }
     }
 
-    private suspend fun recordIfNotDuplicate(payload: String, styleConfig: QrStyleConfig) {
-        val signature = "$payload|${styleConfig.foregroundColor}|${styleConfig.roundedModules}"
+    private fun renderHighResBitmap(state: CreateUiState, payload: String): Bitmap? {
+        return if (state.createKind == CreateKind.BARCODE) {
+            QrCodeGenerator.generateBarcodeBitmap(
+                content = payload,
+                format = state.barcodeFormat,
+                widthPx = 1200,
+                heightPx = 460,
+                foregroundColor = state.styleConfig.foregroundColor,
+                backgroundColor = state.styleConfig.backgroundColor
+            )
+        } else {
+            QrCodeGenerator.generateBitmap(
+                content = payload,
+                sizePx = 1024,
+                styleConfig = state.styleConfig
+            )
+        }
+    }
+
+    private suspend fun recordIfNotDuplicate(state: CreateUiState, payload: String) {
+        val formatKey = if (state.createKind == CreateKind.BARCODE) {
+            state.barcodeFormat.name
+        } else {
+            "QR_CODE"
+        }
+        val signature = "$formatKey|$payload|${state.styleConfig.foregroundColor}|${state.styleConfig.roundedModules}"
         if (signature == lastSavedSignature) return
         lastSavedSignature = signature
         repository.recordEntry(
             rawContent = payload,
             source = QrSource.CREATED,
-            styleConfig = styleConfig
+            styleConfig = state.styleConfig,
+            barcodeFormatOverride = if (state.createKind == CreateKind.BARCODE) state.barcodeFormat else null
         )
     }
 
     private fun updateStateAndRebuild(transform: (CreateUiState) -> CreateUiState) {
         val updated = transform(_uiState.value)
-        val payload = buildPayload(updated)
-        _uiState.value = updated.copy(encodedPayload = payload)
-        rebuildPreview(payload, updated.styleConfig)
+        if (updated.createKind == CreateKind.BARCODE) {
+            val trimmed = updated.barcodeInput.trim()
+            val validationError = QrCodeGenerator.validateBarcodeInput(trimmed, updated.barcodeFormat)
+            _uiState.value = updated.copy(
+                encodedPayload = trimmed,
+                barcodeValidationError = validationError
+            )
+            rebuildBarcodePreview(trimmed, updated.barcodeFormat, validationError, updated.styleConfig)
+        } else {
+            val payload = buildQrPayload(updated)
+            _uiState.value = updated.copy(
+                encodedPayload = payload,
+                barcodeValidationError = null
+            )
+            rebuildQrPreview(payload, updated.styleConfig)
+        }
     }
 
-    private fun buildPayload(state: CreateUiState): String {
+    private fun buildQrPayload(state: CreateUiState): String {
         return when (state.selectedCategory) {
             QrContentType.URL -> QrPayloadBuilder.buildUrl(state.urlInput)
             QrContentType.TEXT -> state.textInput.trim()
@@ -343,10 +431,11 @@ class CreateViewModel(
                 platform = state.socialPlatform,
                 handleOrUrl = state.socialHandle
             )
+            QrContentType.BARCODE -> state.barcodeInput.trim()
         }
     }
 
-    private fun rebuildPreview(payload: String, styleConfig: QrStyleConfig) {
+    private fun rebuildQrPreview(payload: String, styleConfig: QrStyleConfig) {
         previewJob?.cancel()
         if (payload.isBlank()) {
             _uiState.update { it.copy(previewBitmap = null) }
@@ -361,6 +450,39 @@ class CreateViewModel(
                 )
             }
             _uiState.update { it.copy(previewBitmap = bitmap) }
+        }
+    }
+
+    private fun rebuildBarcodePreview(
+        payload: String,
+        format: BarcodeFormatType,
+        validationError: String?,
+        styleConfig: QrStyleConfig
+    ) {
+        previewJob?.cancel()
+        if (payload.isBlank() || validationError != null) {
+            _uiState.update { it.copy(previewBitmap = null) }
+            return
+        }
+        previewJob = viewModelScope.launch {
+            val bitmap = withContext(Dispatchers.Default) {
+                QrCodeGenerator.generateBarcodeBitmap(
+                    content = payload,
+                    format = format,
+                    widthPx = 960,
+                    heightPx = 360,
+                    foregroundColor = styleConfig.foregroundColor,
+                    backgroundColor = styleConfig.backgroundColor
+                )
+            }
+            _uiState.update {
+                val finalErr = if (bitmap == null) {
+                    "Value is not valid for ${format.label} (check checksum or characters)"
+                } else {
+                    null
+                }
+                it.copy(previewBitmap = bitmap, barcodeValidationError = finalErr)
+            }
         }
     }
 
